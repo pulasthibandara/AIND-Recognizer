@@ -77,7 +77,20 @@ class SelectorBIC(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        return min(
+            [self.base_model(num_components) for num_components in range(self.min_n_components, self.max_n_components + 1)],
+            key=self.calculate_score
+        )
+
+    def calculate_score(self, model):
+        try:
+            p = math.pow(model.n_components, 2) + 2 * len(self.X[0]) * model.n_components - 1
+            logL = model.score(self.X, self.lengths)
+            N = np.sum(self.lengths)
+            score = -2 * logL + p * np.log(N)
+            return score
+        except:
+            return float('Inf')
 
 
 class SelectorDIC(ModelSelector):
@@ -94,7 +107,26 @@ class SelectorDIC(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        return min(
+            [self.base_model(num_components) for num_components in range(self.min_n_components, self.max_n_components + 1)],
+            key=self.calculate_score
+        )
+
+    def calculate_score(self, model):
+        other_score = 0
+        try:
+            score = model.score(self.X, self.lengths) 
+            other_words = filter(lambda word: word != self.this_word, self.words)
+            for word in other_words:
+                otherX, otherlength = self.hwords[word]
+                try:
+                    other_score += model.score(otherX, otherlength)
+                except:
+                    pass
+            other_score = other_score / len(other_words)
+            return score - other_score
+        except:
+            return float('Inf')
 
 
 class SelectorCV(ModelSelector):
@@ -106,4 +138,31 @@ class SelectorCV(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection using CV
-        raise NotImplementedError
+        def calculate_score(num_components):
+            total_score = 0
+            index = 0
+
+            try:
+                split_method = KFold(n_splits=min(3, len(self.sequences)))
+            except:
+                return float('Inf')
+
+            for train_idx, test_idx in split_method.split(self.sequences):
+                self.X, self.lengths = combine_sequences(train_idx, self.sequences)
+                test_x, test_lengths = combine_sequences(test_idx, self.sequences)
+
+                model = self.base_model(num_components)
+                try:
+                    total_score += model.score(test_x, test_lengths)
+                    index = index + 1
+
+                    return total_score / index
+                except:
+                    return float('Inf')
+
+        best_num = min(
+            range(self.min_n_components, self.max_n_components + 1),
+            key=calculate_score
+        )
+
+        return self.base_model(best_num)
